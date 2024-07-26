@@ -164,7 +164,7 @@ Which produces the following output:
 
 <img src="images/tsne.png" alt="Description" width="450" height="400">
 
-### Identify Marker Genes
+### Identifying Marker Genes and Cell Composition of Tissues
 Next, we'll perform differential expression analysis to identify top marker genes in each of our clusters:
 ```
 # perform differential expression analysis
@@ -194,7 +194,7 @@ Which produces the following output:
 
 <img src="images/marker_genes.png" alt="Description" width="450" height="600">
 
-The image above depicts the top three marker genes expressed in each of our cluster. Now, we'll take the top marker gene for each cluster and then visualize it's expression across clusters to identify the cellular composition and identity of each cluster:
+The image above depicts the top three marker genes expressed in each of our cluster. Now, we'll take the top marker gene for each cluster and then visualize it's expression across all clusters to observe it's distribution:
 ```
 # compute t-SNE
 sc.tl.tsne(adata_transposed)
@@ -224,3 +224,21 @@ plt.tight_layout()
 Which produces the following output:
 
 <img src="images/tsne2.png" alt="Description" width="1000" height="600">
+
+In the image above we can see how cluster specific marker genes are differentially expressed between clusters. 
+
+Now, based on the marker genes I computer for each cluster, I'll attempt to identify the clusters cellualr composition:
+- Cluster 0 (GSN, APOD, DCN): These genes are associated with extracellular matrix proteins and could indicate a population of fibroblasts or mesenchymal Cells, which are involved in tissue repair and extracellular matrix maintenance.
+- Cluster 1 (RGS5, NDUFA4L2, NOTCH3): RGS5 and NOTCH3 are linked with vascular smooth muscle cells or pericytes, while NDUFA4L2 is related to mitochondrial function. This cluster may represent pericytes or vascular smooth muscle cells.
+- Cluster 2 (BTNL9, VWF, AQP1): VWF is a marker for endothelial cells, and AQP1 is associated with endothelial and epithelial cells. This cluster likely represents endothelial cells.
+- Cluster 3 (FBN1, MFAP5, PLAC9): FBN1 and MFAP5 are markers for extracellular matrix components, often found in fibroblasts or myofibroblasts involved in matrix remodeling.
+- Cluster 4 (FABP4, RNASE1, A2M): FABP4 is associated with adipocytes, and A2M is involved in inflammation and tissue remodeling. This cluster could represent adipocytes or adipose-derived stromal cells.
+- Cluster 5 (B2M, TMSB10, TMSB4X): B2M and TMSB10/TMSB4X are markers for muscle cells or muscle progenitor cells, suggesting this cluster may represent skeletal muscle cells.
+- Cluster 6 (TYROBP, FTH1, TMSBX4): TYROBP is a marker for myeloid cells, and FTH1 is related to iron metabolism, which might suggest macrophages or monocyte-derived cells.
+- Cluster 7 (MALAT1, ADIRF, CALM2): MALAT1 is a long non-coding RNA associated with various cell types, and ADIRF and CALM2 are involved in cellular responses and calcium signaling. This cluster might represent muscle progenitor cells or satellite cells.
+- Cluster 8 (RPL7, RPL35A, RPL39): These are ribosomal proteins, and their presence is common in All Cell Types with high translational activity. This cluster might represent proliferating cells or a general muscle cell [opulation.
+- Cluster 9 (FABP4, LAP3, ANXA3): FABP4 indicates adipocytes, and ANXA3 is involved in stress responses. This cluster might represent adipocytes or adipose tissue-derived cells.
+- Cluster 10 (NKG7, TMSB4X, B2M): NKG7 is a marker for natural killer cells, and TMSB4X/B2M are involved in general cellular functions. This cluster might represent immune cells, potentially NK Cells or cytotoxic cells.
+- Cluster 11 (APOD, DCN, GSN): These markers are associated with extracellular matrix and connective tissue, similar to Cluster 0. This cluster likely represents fibroblasts or connective tissue cells.
+
+Summarizing the points above, it appears that the cellular composition of our skeletal muscle samples include fibroblasts, mesenchymal cells, pericytes, smooth muscle cells, endothelial cells, adipocytes, macrophages, muscle progenitor cells, satelite cells, NK cells, and other immune cells, such as T cells. 
