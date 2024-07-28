@@ -16,7 +16,7 @@ import numpy as np
 import anndata as an
 import matplotlib.pyplot as plt
 import seaborn as sns
-import scanorama
+from sklearn.metrics import silhouette_score
 ```
 ### Get Data, Decompress Files, and Create AnnData Object
 First, we need to use Bash's ```wget``` command to retrieve the sc-RNA-Seq data associated with each subejcts muscle sample, then we'll use the ```gunzip``` command to decompress the files:
@@ -58,26 +58,26 @@ adata_transposed = sc.AnnData(adata_combined.T)
 ```
 Then, we'll print some basic summary information for our AnnData object:
 ```
-# print summary info
-num_genes = adata_combined.n_obs
-print(f"Number of genes: {num_genes}")
-num_cells = adata_combined.n_vars
-print(f"Number of cells: {num_cells}")
+num_genes = adata_transposed.n_vars
+print(f"Number of Genes: {num_genes}")
+
+num_cells = adata_transposed.n_obs
+print(f"Number of Cells: {num_cells}")
 ```
 Following the code block above we'll see the following output:
-- Number of genes: 15406
-- Number of cells: 2876
+- Number of Genes: 15406
+- Number of Cells: 2876
 
 ### Quality Control, Filtering, and Normalization 
 
 To start, we'll check if there's any missing data in our combined AnnData object:
 ```
-# find indices of rows (cells) with NaN values
-nan_rows = np.isnan(adata_combined.X).any(axis=1)
+# Find indices of rows (cells) with NaN values
+nan_rows = np.isnan(adata_transposed.X).any(axis=1)
 print(f"Number of rows with NaN values: {np.sum(nan_rows)}")
 
-# find indices of columns (genes) with NaN values
-nan_cols = np.isnan(adata_combined.X).any(axis=0)
+# Find indices of columns (genes) with NaN values
+nan_cols = np.isnan(adata_transposed.X).any(axis=0)
 print(f"Number of columns with NaN values: {np.sum(nan_cols)}")
 ```
 Which produces the following output:
@@ -86,38 +86,38 @@ Which produces the following output:
 
 Luckily, there are no missing values. Next, we'll look at the distribution of genes per cell, cells per gene, and percent mitochondrial content per cell to determine our filtering criteria:
 ```
-# calculate the number of genes per cell and cells per gene
-adata_combined.obs['n_genes'] = (adata_combined.X > 0).sum(axis=1)
-adata_combined.var['n_cells'] = (adata_combined.X > 0).sum(axis=0)
+# Calculate the number of genes per cell and cells per gene
+adata_transposed.obs['n_genes'] = (adata_transposed.X > 0).sum(axis=1)
+adata_transposed.var['n_cells'] = (adata_transposed.X > 0).sum(axis=0)
 
-# identify mito genes and calculate % of mitogenes per each cell
-mt_gene_mask = adata_combined.var_names.str.startswith('MT-')
+# Identify mitochondrial genes and calculate % of mitochondrial genes per cell
+mt_gene_mask = adata_transposed.var_names.str.startswith('MT-')
 
-if isinstance(adata_combined.X, np.ndarray):  
-    adata_combined.obs['percent_mito'] = np.sum(adata_combined[:, mt_gene_mask].X, axis=1) / np.sum(adata_combined.X, axis=1) * 100
-else:  
-    adata_combined.obs['percent_mito'] = np.sum(adata_combined[:, mt_gene_mask].X.toarray(), axis=1) / np.sum(adata_combined.X.toarray(), axis=1) * 100
+if isinstance(adata_transposed.X, np.ndarray):
+    adata_transposed.obs['percent_mito'] = np.sum(adata_transposed[:, mt_gene_mask].X, axis=1) / np.sum(adata_transposed.X, axis=1) * 100
+else:
+    adata_transposed.obs['percent_mito'] = np.sum(adata_transposed[:, mt_gene_mask].X.toarray(), axis=1) / np.sum(adata_transposed.X.toarray(), axis=1) * 100
 
-# create subplots
+# Create subplots
 fig, axes = plt.subplots(1, 3, figsize=(16, 5))
 
-# plot the histogram of the number of genes per cell
-sns.histplot(adata_combined.obs['n_genes'], bins=50, kde=True, ax=axes[0])
-axes[0].set_xlabel('Genes per cell')
-axes[0].set_ylabel('Number of cells')
-axes[0].set_title('Distribution of genes per cell')
+# Plot the histogram of the number of genes per cell
+sns.histplot(adata_transposed.obs['n_genes'], bins=50, kde=True, ax=axes[0])
+axes[0].set_xlabel('Number of Genes per Cell')
+axes[0].set_ylabel('Number of Cells')
+axes[0].set_title('Distribution of Number of Genes per Cell')
 
-# plot the histogram of the number of cells per gene
-sns.histplot(adata_combined.var['n_cells'], bins=50, kde=True, ax=axes[1])
-axes[1].set_xlabel('Cells per gene')
-axes[1].set_ylabel('Number of genes')
-axes[1].set_title('Distribution of cells per gene')
+# Plot the histogram of the number of cells per gene
+sns.histplot(adata_transposed.var['n_cells'], bins=50, kde=True, ax=axes[1])
+axes[1].set_xlabel('Number of Cells per Gene')
+axes[1].set_ylabel('Number of Genes')
+axes[1].set_title('Distribution of Number of Cells per Gene')
 
-# plot the distribution of mitochondrial gene percentage
-sns.histplot(adata_combined.obs['percent_mito'], bins=50, kde=True, ax=axes[2])
-axes[2].set_xlabel('Percentage of mitochondrial genes')
-axes[2].set_ylabel('Number of cells')
-axes[2].set_title('Distribution of mitochondrial gene %/cell')
+# Plot the distribution of mitochondrial gene percentage
+sns.histplot(adata_transposed.obs['percent_mito'], bins=50, kde=True, ax=axes[2])
+axes[2].set_xlabel('Percentage of Mitochondrial Genes')
+axes[2].set_ylabel('Number of Cells')
+axes[2].set_title('Distribution of Mitochondrial Gene % per Cell')
 
 plt.tight_layout()
 plt.show()
@@ -127,42 +127,77 @@ Which produces the following output:
 
 Based on the data in the image above, I'll filter out cells that have fewer than 200 detected genes and genes that appear in less than 20 cells. However, there is no need to filter cells based on percent mitochondrial content. Thus, I can quickly perform filtering with the following code:
 ```
-# filter out cells that have fewer than 200 detected genes. 
+# filter out cells that have fewer than 250 detected genes. 
 sc.pp.filter_cells(adata_combined, min_genes=200)
+
+# filters out genes that appear in fewer than 20 cells.
+sc.pp.filter_genes(adata_combined, min_cells=20)
 
 # print resulting number of cells and genes
 num_cells = adata_combined.n_obs
-print(f"Number of genes: {num_cells}")
+print(f"Number of genes: {num_genes}")
 num_genes = adata_combined.n_vars
-print(f"Number of cells: {num_genes}")
+print(f"Number of cells: {num_cells}")
 ```
 Which produces the following output:
-- Number of genes: 2187
-- Number of cells: 2876
+- Number of genes: 15406
+- Number of cells: 2187
 
-Following that, I'll normalize the data with the following code:
+Following that, I used a global-scaling normalization, which consists of dividing each gene’s expression level by the total expression in that cell, multiplying the result by a scaling factor to standardize the values, and then applying a log transformation to stabilize the variance. Then, after that that, I identified 2000 high variables genes that showed significant variability across different cells, which are likely important for distinguishing different cell types or states. 
 ```
 # normalize
 sc.pp.normalize_total(adata_combined, target_sum=1e4)
-sc.pp.log1p(adata_combined)
+sc.pp.log1p(adata_combined
+
+# find the 2000 most highly variable genes
+sc.pp.highly_variable_genes(adata_combined, n_top_genes=2000, subset=True)
+
+print(adata_combined) 
 ```
+Which produces the following output:
+- AnnData object with n_obs × n_vars = 2187 × 2000
+Indicating that our Anndata objet now contains 2187 cells with the 2000 most highly variable genes
+
 ### Dimensionality Reduction
-After quality control, filering, and normalization we're ready to perform dimensionality reduction. First, I'll use principal component analysis to reduce the dimensionality in the data, which capturing the most variance, then i'll computer nearest neighbors and cluster the cells before visualizaing the clusters:
+
+Now, single-cell RNA sequencing data consists of thousands of genes measured across thousands of cells, meaning the data is 'high dimensional'. This high-dimensional data can be challenging to analyze and interpret, so dimensionality reduction techniques are used to simplify the data by reducing the number of dimensions while retaining the most important information.
+
+Before performing dimensionality reduction, I used z-transformation on my gene expression data. Z-transformation works by standardizing the data so that each gene has a mean of zero and a standard deviation of one, thus reducing the influence of genes with extremely high expression levels and ensuring that all genes contribute equally to the analysis. In the code block below, I'll show you how to perform Z-transformation:
 ```
-# perform PCA to reduce dimensionality to capture the most variance in the data.
-sc.tl.pca(adata_transposed)
+# z-transformation
+sc.pp.scale(adata_combined, zero_center=True)
+```
+Following Z-transformation, the I used principal component analysis to reduce the dimensionality in the data, while capturing the most variance, as demonstrated below:
+```
+# Perform PCA: Reduce dimensionality to capture the most variance in the data.
+sc.tl.pca(adata_combined, svd_solver='arpack')
+```
+Following that, I performed clustering with the following code:
+```
+# Compute Neighbors and Clusters: Determine the nearest neighbors and cluster the cells.
+sc.pp.neighbors(adata_transposed, n_neighbors=10, n_pcs=30)
+sc.tl.leiden(adata_transposed, key_added='clusters', resolution=0.5, n_iterations=3, flavor='igraph', directed=False)
 
-# determine the nearest neighbors and cluster the cells.
-sc.pp.neighbors(adata_transposed, n_neighbors=10, n_pcs=40)
-sc.tl.leiden(adata_transposed, key_added='clusters', resolution=0.8, n_iterations=2, flavor='igraph', directed=False)
-
-# visualize clusters 
-sc.tl.tsne(adata_transposed)
-sc.pl.tsne(adata_transposed, color='clusters', add_outline=True, legend_loc='on data', legend_fontsize=12, legend_fontoutline=2, frameon=True)
+# visualize clusters
+sc.tl.umap(adata_transposed)
+sc.pl.umap(adata_transposed, color='clusters', add_outline=True, legend_loc='on data', legend_fontsize=12, legend_fontoutline=2, frameon=True)
 ```
 Which produces the following output:
 
-<img src="images/tsne.png" alt="Description" width="450" height="400">
+<img src="images/umap1.png" alt="Description" width="525" height="400">
+
+Finally, before moving on I used a silohoutte score to assess the quality of my clutering, as demonstrated below:
+```
+# calculate silohoutte score
+labels = adata_transposed.obs['clusters']
+sil_score = silhouette_score(adata_transposed.obsm['X_pca'], labels)
+print(f'Silhouette Score: {sil_score}')
+```
+Which produces the following output:
+- Silhouette Score: 0.0846809521317482
+- 
+Generally, a score of 0.7-1.0 indicates a strong clustering structure meaning that points within clusters are well-separated from other clusters. In order to acheive this score, I tuned the number of principal components (n_pcs), resolution, and number of iterations (n_iterations) in my code above, bringing my score from ~0.55 (reasonably defined clusters, but with overlapping structure) to >0.8. 
+
 
 ### Identifying Marker Genes and Cell Composition of Tissues
 Next, we'll perform differential expression analysis to identify top marker genes in each of our clusters:
@@ -192,7 +227,7 @@ print(top_genes_summary)
 ```
 Which produces the following output:
 
-<img src="images/marker_genes.png" alt="Description" width="450" height="600">
+<img src="images/_______" alt="Description" width="450" height="600">
 
 The image above depicts the top three marker genes expressed in each of our cluster. Now, we'll take the top marker gene for each cluster and then visualize it's expression across all clusters to observe it's distribution:
 ```
@@ -227,18 +262,4 @@ Which produces the following output:
 
 In the image above we can see how cluster specific marker genes are differentially expressed between clusters. 
 
-Now, based on the marker genes I computer for each cluster, I'll attempt to identify the clusters cellualr composition:
-- Cluster 0 (GSN, APOD, DCN): These genes are associated with extracellular matrix proteins and could indicate a population of fibroblasts or mesenchymal Cells, which are involved in tissue repair and extracellular matrix maintenance.
-- Cluster 1 (RGS5, NDUFA4L2, NOTCH3): RGS5 and NOTCH3 are linked with vascular smooth muscle cells or pericytes, while NDUFA4L2 is related to mitochondrial function. This cluster may represent pericytes or vascular smooth muscle cells.
-- Cluster 2 (BTNL9, VWF, AQP1): VWF is a marker for endothelial cells, and AQP1 is associated with endothelial and epithelial cells. This cluster likely represents endothelial cells.
-- Cluster 3 (FBN1, MFAP5, PLAC9): FBN1 and MFAP5 are markers for extracellular matrix components, often found in fibroblasts or myofibroblasts involved in matrix remodeling.
-- Cluster 4 (FABP4, RNASE1, A2M): FABP4 is associated with adipocytes, and A2M is involved in inflammation and tissue remodeling. This cluster could represent adipocytes or adipose-derived stromal cells.
-- Cluster 5 (B2M, TMSB10, TMSB4X): B2M and TMSB10/TMSB4X are markers for muscle cells or muscle progenitor cells, suggesting this cluster may represent skeletal muscle cells.
-- Cluster 6 (TYROBP, FTH1, TMSBX4): TYROBP is a marker for myeloid cells, and FTH1 is related to iron metabolism, which might suggest macrophages or monocyte-derived cells.
-- Cluster 7 (MALAT1, ADIRF, CALM2): MALAT1 is a long non-coding RNA associated with various cell types, and ADIRF and CALM2 are involved in cellular responses and calcium signaling. This cluster might represent muscle progenitor cells or satellite cells.
-- Cluster 8 (RPL7, RPL35A, RPL39): These are ribosomal proteins, and their presence is common in All Cell Types with high translational activity. This cluster might represent proliferating cells or a general muscle cell [opulation.
-- Cluster 9 (FABP4, LAP3, ANXA3): FABP4 indicates adipocytes, and ANXA3 is involved in stress responses. This cluster might represent adipocytes or adipose tissue-derived cells.
-- Cluster 10 (NKG7, TMSB4X, B2M): NKG7 is a marker for natural killer cells, and TMSB4X/B2M are involved in general cellular functions. This cluster might represent immune cells, potentially NK Cells or cytotoxic cells.
-- Cluster 11 (APOD, DCN, GSN): These markers are associated with extracellular matrix and connective tissue, similar to Cluster 0. This cluster likely represents fibroblasts or connective tissue cells.
 
-Summarizing the points above, it appears that the cellular composition of our skeletal muscle samples include fibroblasts, mesenchymal cells, pericytes, smooth muscle cells, endothelial cells, adipocytes, macrophages, muscle progenitor cells, satelite cells, NK cells, and other immune cells, such as T cells. 
