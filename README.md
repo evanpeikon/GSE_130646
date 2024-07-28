@@ -127,32 +127,31 @@ Which produces the following output:
 
 Based on the data in the image above, I'll filter out cells that have fewer than 200 detected genes and genes that appear in less than 20 cells. However, there is no need to filter cells based on percent mitochondrial content. Thus, I can quickly perform filtering with the following code:
 ```
-# filter out cells that have fewer than 250 detected genes. 
-sc.pp.filter_cells(adata_combined, min_genes=200)
-
-# filters out genes that appear in fewer than 20 cells.
-sc.pp.filter_genes(adata_combined, min_cells=20)
+# filter
+sc.pp.filter_cells(adata_transposed, min_genes=200) #This filters out cells that have fewer than 200 detected genes
+sc.pp.filter_genes(adata_transposed, min_cells=20) #This filters out genes that appear in fewer than 20 cells.
 
 # print resulting number of cells and genes
-num_cells = adata_combined.n_obs
-print(f"Number of genes: {num_genes}")
-num_genes = adata_combined.n_vars
+num_genes = adata_transposed.n_vars
+print(f"Number of Genes: {num_genes}")
+
+num_cells = adata_transposed.n_obs
 print(f"Number of cells: {num_cells}")
 ```
 Which produces the following output:
-- Number of genes: 15406
-- Number of cells: 2187
+- Number of Genes: 10485
+- Number of cells: 2876
 
 Following that, I used a global-scaling normalization, which consists of dividing each gene’s expression level by the total expression in that cell, multiplying the result by a scaling factor to standardize the values, and then applying a log transformation to stabilize the variance. Then, after that that, I identified 2000 high variables genes that showed significant variability across different cells, which are likely important for distinguishing different cell types or states. 
 ```
 # normalize
-sc.pp.normalize_total(adata_combined, target_sum=1e4)
-sc.pp.log1p(adata_combined
+sc.pp.normalize_total(adata_transposed, target_sum=1e4)
+sc.pp.log1p(adata_transposed)
 
 # find the 2000 most highly variable genes
-sc.pp.highly_variable_genes(adata_combined, n_top_genes=2000, subset=True)
+sc.pp.highly_variable_genes(adata_transposed, n_top_genes=2000, subset=True)
 
-print(adata_combined) 
+print(adata_transposed)
 ```
 Which produces the following output:
 - AnnData object with n_obs × n_vars = 2187 × 2000
@@ -165,17 +164,17 @@ Now, single-cell RNA sequencing data consists of thousands of genes measured acr
 Before performing dimensionality reduction, I used z-transformation on my gene expression data. Z-transformation works by standardizing the data so that each gene has a mean of zero and a standard deviation of one, thus reducing the influence of genes with extremely high expression levels and ensuring that all genes contribute equally to the analysis. In the code block below, I'll show you how to perform Z-transformation:
 ```
 # z-transformation
-sc.pp.scale(adata_combined, zero_center=True)
+sc.pp.scale(adata_transposed, zero_center=True)
 ```
 Following Z-transformation, the I used principal component analysis to reduce the dimensionality in the data, while capturing the most variance, as demonstrated below:
 ```
 # Perform PCA: Reduce dimensionality to capture the most variance in the data.
-sc.tl.pca(adata_combined, svd_solver='arpack')
+sc.tl.pca(adata_transposed, svd_solver='arpack')
 ```
 Following that, I performed clustering with the following code:
 ```
 # Compute Neighbors and Clusters: Determine the nearest neighbors and cluster the cells.
-sc.pp.neighbors(adata_transposed, n_neighbors=10, n_pcs=30)
+sc.pp.neighbors(adata_transposed, n_neighbors=10, n_pcs=10)
 sc.tl.leiden(adata_transposed, key_added='clusters', resolution=0.5, n_iterations=3, flavor='igraph', directed=False)
 
 # visualize clusters
@@ -184,7 +183,7 @@ sc.pl.umap(adata_transposed, color='clusters', add_outline=True, legend_loc='on 
 ```
 Which produces the following output:
 
-<img src="images/umap1.png" alt="Description" width="525" height="400">
+<img src="images/umap.png" alt="Description" width="525" height="400">
 
 Finally, before moving on I used a silohoutte score to assess the quality of my clutering, as demonstrated below:
 ```
@@ -194,72 +193,67 @@ sil_score = silhouette_score(adata_transposed.obsm['X_pca'], labels)
 print(f'Silhouette Score: {sil_score}')
 ```
 Which produces the following output:
-- Silhouette Score: 0.0846809521317482
+- Silhouette Score: 0.15771949291229248
 - 
-Generally, a score of 0.7-1.0 indicates a strong clustering structure meaning that points within clusters are well-separated from other clusters. In order to acheive this score, I tuned the number of principal components (n_pcs), resolution, and number of iterations (n_iterations) in my code above, bringing my score from ~0.55 (reasonably defined clusters, but with overlapping structure) to >0.8. 
+Generally, a score of 0.15 would indicate weak clustering and that we should adjust parameters in our clustering algorithm to achieve a higher score. However, in cases wehre all of the cells in our sample come from a single tissue (i.e., skeletal muscle) it's common for Silhouette scores to be on the low end. As a result, I've adjsuted the parameters to the best of my ability to increase the silohutte score, knowing that the homogeneity of the tissue will prevent me from maximizing it and achieving gold standard values of 0.7-1.0
 
 
 ### Identifying Marker Genes and Cell Composition of Tissues
 Next, we'll perform differential expression analysis to identify top marker genes in each of our clusters:
 ```
-# perform differential expression analysis
-sc.tl.rank_genes_groups(adata_transposed, groupby='clusters', method='t-test')
+# Perform Differential Expression Analysis: Use differential expression testing to find genes that are differentially expressed between clusters.
+sc.tl.rank_genes_groups(adata_transposed, groupby='clusters', method='wilcoxon', corr_method='bonferroni')
 
 # find top marker genes for each cluster.
 top_markers = sc.get.rank_genes_groups_df(adata_transposed, group=None)
 
 # now, we're going to convert top_markers to DF to get summary of top markers per cluster
+# Convert to DataFrame
 top_markers_df = pd.DataFrame(top_markers)
 
-# initialize a dictionary to store top markers
+# Initialize a dictionary to store top markers
 top_genes_per_cluster = {}
 
-# get list of clusters and iterate over each cluster to get top markers 
+# Get list of clusters
 clusters = adata_transposed.uns['rank_genes_groups']['names'].dtype.names
 
+# Iterate over each cluster to get top markers
 for cluster in clusters:
-    top_genes = top_markers_df[top_markers_df['group'] == cluster].head(4)
+    # Get top 3 genes for the current cluster
+    top_genes = top_markers_df[top_markers_df['group'] == cluster].head(3)
     top_genes_per_cluster[cluster] = top_genes
 
-# convert dictionary to DataFrame for easy viewing
+# Convert dictionary to DataFrame for easy viewing
 top_genes_summary = pd.concat(top_genes_per_cluster.values(), keys=top_genes_per_cluster.keys())
 print(top_genes_summary)
+
 ```
 Which produces the following output:
 
-<img src="images/_______" alt="Description" width="450" height="600">
+<img src="images/DEA.png" alt="Description" width="450" height="500">
 
 The image above depicts the top three marker genes expressed in each of our cluster. Now, we'll take the top marker gene for each cluster and then visualize it's expression across all clusters to observe it's distribution:
 ```
-# compute t-SNE
-sc.tl.tsne(adata_transposed)
+marker_genes = ['APOD', 'RGS5', 'AQP1', 'FABP4', 'FABP5', 'TAGLN', 'DARC', 'APOC1', 'NKG7', 'MFAP5', 'TYROBP', 'CD52']
 
-# fefine your marker genes
-marker_genes = ['GSN', 'RGS5', 'BTNL9', 'FBN1', 'FABP4', 'B2M', 'TYROBP', 'MALAT1', 'RPL7', 'LAP3', 'NKG7', 'APOD']
-
-# create a figure with 3 rows of subplots
-n_rows = 3
-n_cols = 4  # Adjust based on the number of marker genes
-fig, axes = plt.subplots(n_rows, n_cols, figsize=(15, 10))
-
-# flatten the axes array for easy iteration
+# Plot UMAP for each marker gene
+fig, axes = plt.subplots(nrows=3, ncols=4, figsize=(20, 15))
 axes = axes.flatten()
 
-# loop through each marker gene and plot its expression
 for i, gene in enumerate(marker_genes):
     if gene in adata_transposed.var_names:
-        sc.pl.tsne(adata_transposed, color=gene, ax=axes[i], show=False)
-        axes[i].set_title(f'{gene} expression')
+        sc.pl.umap(adata_transposed, color=gene, ax=axes[i], title=gene, show=False)
     else:
-        print(f"Warning: Gene {gene} not found in dataset.")
-        axes[i].set_title(f'{gene} not found')
+        axes[i].set_title(f"{gene} not in dataset")
+        axes[i].axis('off')
 
 plt.tight_layout()
+plt.show()
 ```
 Which produces the following output:
 
-<img src="images/tsne2.png" alt="Description" width="1000" height="600">
+<img src="images/umap2.png" alt="Description" width="1000" height="600">
 
 In the image above we can see how cluster specific marker genes are differentially expressed between clusters. 
 
-
+Now, by using a combination of known cell-specific marker genes, and literature searches, we can decode each clusters cell type identify as follows:
