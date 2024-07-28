@@ -21,6 +21,7 @@ from sklearn.metrics import silhouette_score
 ### Get Data, Decompress Files, and Create AnnData Object
 First, we need to use Bash's ```wget``` command to retrieve the sc-RNA-Seq data associated with each subejcts muscle sample, then we'll use the ```gunzip``` command to decompress the files:
 ```
+# retrieve data from GEO, then decompress files 
 !wget -O GSM3746212_Muscle_1_Counts.csv.gz 'https://www.ncbi.nlm.nih.gov/geo/download/?acc=GSM3746212&format=file&file=GSM3746212%5FMuscle%5F1%5FCounts%2Ecsv%2Egz'
 !gunzip GSM3746212_Muscle_1_Counts.csv.gz
 
@@ -35,25 +36,29 @@ First, we need to use Bash's ```wget``` command to retrieve the sc-RNA-Seq data 
 ```
 Following that, we'll read the decompressed muscle counts csv files with Panda's ```read_csv()``` function, then we'll convert the individual CSV files into Anndata objects before combining them into a single AnnData object:
 ```
-file_1 = pd.read_csv('GSM3746212_Muscle_1_Counts.csv', index_col=0)  
+# convert ea/ samples associated CSV file into AnnData object
+file_1 = pd.read_csv('GSM3746212_Muscle_1_Counts.csv', index_col=0)
 muscle_1 = sc.AnnData(file_1)
 
-file_2 = pd.read_csv('GSM3746213_Muscle_2_Counts.csv', index_col=0)  
+file_2 = pd.read_csv('GSM3746213_Muscle_2_Counts.csv', index_col=0)
 muscle_2 = sc.AnnData(file_2)
 
-file_3 = pd.read_csv('GSM3746214_Muscle_3_Counts.csv', index_col=0) 
+file_3 = pd.read_csv('GSM3746214_Muscle_3_Counts.csv', index_col=0)
 muscle_3 = sc.AnnData(file_3)
 
-file_4 = pd.read_csv('GSM3746215_Muscle_4_Counts.csv', index_col=0)  
+file_4 = pd.read_csv('GSM3746215_Muscle_4_Counts.csv', index_col=0)
 muscle_4 = sc.AnnData(file_4)
 
-# store all hour anndata objects in a list, then combine all 4 anndata objects into a single anndata object 
+# create list of AnnData objects for ea/ sample
 adatas = [muscle_1, muscle_2, muscle_3, muscle_4]
+
+# combine all AnnData objects into a single object 
 adata_combined = sc.concat(adatas, axis=1, label='sample', keys=['muscle_1', 'muscle_2', 'muscle_3', 'muscle_4'])
 adata_combined.var_names_make_unique()
 ```
 Next, we'll transpose our AnnData object so the rows are cell ID's and the columns are genes (since this is assumed for many down stream analysis):
 ```
+# transpose adata_combined and save it as adata_transposed
 adata_transposed = sc.AnnData(adata_combined.T)
 ```
 Then, we'll print some basic summary information for our AnnData object:
@@ -72,11 +77,11 @@ Following the code block above we'll see the following output:
 
 To start, we'll check if there's any missing data in our combined AnnData object:
 ```
-# Find indices of rows (cells) with NaN values
+# find indices of rows (cells) with NaN values
 nan_rows = np.isnan(adata_transposed.X).any(axis=1)
 print(f"Number of rows with NaN values: {np.sum(nan_rows)}")
 
-# Find indices of columns (genes) with NaN values
+# find indices of columns (genes) with NaN values
 nan_cols = np.isnan(adata_transposed.X).any(axis=0)
 print(f"Number of columns with NaN values: {np.sum(nan_cols)}")
 ```
@@ -86,11 +91,11 @@ Which produces the following output:
 
 Luckily, there are no missing values. Next, we'll look at the distribution of genes per cell, cells per gene, and percent mitochondrial content per cell to determine our filtering criteria:
 ```
-# Calculate the number of genes per cell and cells per gene
+# calculate the # of genes per cell and cells per gene
 adata_transposed.obs['n_genes'] = (adata_transposed.X > 0).sum(axis=1)
 adata_transposed.var['n_cells'] = (adata_transposed.X > 0).sum(axis=0)
 
-# Identify mitochondrial genes and calculate % of mitochondrial genes per cell
+# identify mito genes and calculate % of mito genes per cell
 mt_gene_mask = adata_transposed.var_names.str.startswith('MT-')
 
 if isinstance(adata_transposed.X, np.ndarray):
@@ -98,22 +103,22 @@ if isinstance(adata_transposed.X, np.ndarray):
 else:
     adata_transposed.obs['percent_mito'] = np.sum(adata_transposed[:, mt_gene_mask].X.toarray(), axis=1) / np.sum(adata_transposed.X.toarray(), axis=1) * 100
 
-# Create subplots
+# create subplots
 fig, axes = plt.subplots(1, 3, figsize=(16, 5))
 
-# Plot the histogram of the number of genes per cell
+# plot the histogram of the number of genes per cell
 sns.histplot(adata_transposed.obs['n_genes'], bins=50, kde=True, ax=axes[0])
 axes[0].set_xlabel('Number of Genes per Cell')
 axes[0].set_ylabel('Number of Cells')
 axes[0].set_title('Distribution of Number of Genes per Cell')
 
-# Plot the histogram of the number of cells per gene
+# plot the histogram of the number of cells per gene
 sns.histplot(adata_transposed.var['n_cells'], bins=50, kde=True, ax=axes[1])
 axes[1].set_xlabel('Number of Cells per Gene')
 axes[1].set_ylabel('Number of Genes')
 axes[1].set_title('Distribution of Number of Cells per Gene')
 
-# Plot the distribution of mitochondrial gene percentage
+# plot the distribution of mito gene %
 sns.histplot(adata_transposed.obs['percent_mito'], bins=50, kde=True, ax=axes[2])
 axes[2].set_xlabel('Percentage of Mitochondrial Genes')
 axes[2].set_ylabel('Number of Cells')
@@ -127,9 +132,11 @@ Which produces the following output:
 
 Based on the data in the image above, I'll filter out cells that have fewer than 200 detected genes and genes that appear in less than 20 cells. However, there is no need to filter cells based on percent mitochondrial content. Thus, I can quickly perform filtering with the following code:
 ```
-# filter
-sc.pp.filter_cells(adata_transposed, min_genes=200) #This filters out cells that have fewer than 200 detected genes
-sc.pp.filter_genes(adata_transposed, min_cells=20) #This filters out genes that appear in fewer than 20 cells.
+# filter out cells that have fewer than 200 detected genes
+sc.pp.filter_cells(adata_transposed, min_genes=200)
+
+# filter out genes that appear in fewer than 20 cells.
+sc.pp.filter_genes(adata_transposed, min_cells=20) 
 
 # print resulting number of cells and genes
 num_genes = adata_transposed.n_vars
@@ -144,7 +151,7 @@ Which produces the following output:
 
 Following that, I used a global-scaling normalization, which consists of dividing each gene’s expression level by the total expression in that cell, multiplying the result by a scaling factor to standardize the values, and then applying a log transformation to stabilize the variance. Then, after that that, I identified 2000 high variables genes that showed significant variability across different cells, which are likely important for distinguishing different cell types or states. 
 ```
-# normalize
+# global-scaling normalizatio
 sc.pp.normalize_total(adata_transposed, target_sum=1e4)
 sc.pp.log1p(adata_transposed)
 
@@ -163,17 +170,17 @@ Now, single-cell RNA sequencing data consists of thousands of genes measured acr
 
 Before performing dimensionality reduction, I used z-transformation on my gene expression data. Z-transformation works by standardizing the data so that each gene has a mean of zero and a standard deviation of one, thus reducing the influence of genes with extremely high expression levels and ensuring that all genes contribute equally to the analysis. In the code block below, I'll show you how to perform Z-transformation:
 ```
-# z-transformation
+# perform z-transformation
 sc.pp.scale(adata_transposed, zero_center=True)
 ```
 Following Z-transformation, the I used principal component analysis to reduce the dimensionality in the data, while capturing the most variance, as demonstrated below:
 ```
-# Perform PCA: Reduce dimensionality to capture the most variance in the data.
+# perform PCA to reduce dimensionality and capture the most variance in the data.
 sc.tl.pca(adata_transposed, svd_solver='arpack')
 ```
 Following that, I performed clustering with the following code:
 ```
-# Compute Neighbors and Clusters: Determine the nearest neighbors and cluster the cells.
+# determine the nearest neighbors and cluster the cells.
 sc.pp.neighbors(adata_transposed, n_neighbors=10, n_pcs=10)
 sc.tl.leiden(adata_transposed, key_added='clusters', resolution=0.5, n_iterations=3, flavor='igraph', directed=False)
 
@@ -187,7 +194,7 @@ Which produces the following output:
 
 Finally, before moving on I used a silohoutte score to assess the quality of my clutering, as demonstrated below:
 ```
-# calculate silohoutte score
+# calculate silhouette score
 labels = adata_transposed.obs['clusters']
 sil_score = silhouette_score(adata_transposed.obsm['X_pca'], labels)
 print(f'Silhouette Score: {sil_score}')
@@ -201,32 +208,27 @@ Generally, a score of 0.15 would indicate weak clustering and that we should adj
 ### Identifying Marker Genes and Cell Composition of Tissues
 Next, we'll perform differential expression analysis to identify top marker genes in each of our clusters:
 ```
-# Perform Differential Expression Analysis: Use differential expression testing to find genes that are differentially expressed between clusters.
+# perform differential expression analysis and find top markers for each cluster
 sc.tl.rank_genes_groups(adata_transposed, groupby='clusters', method='wilcoxon', corr_method='bonferroni')
-
-# find top marker genes for each cluster.
 top_markers = sc.get.rank_genes_groups_df(adata_transposed, group=None)
 
-# now, we're going to convert top_markers to DF to get summary of top markers per cluster
-# Convert to DataFrame
+# convert top_markers to pandas DF
 top_markers_df = pd.DataFrame(top_markers)
 
-# Initialize a dictionary to store top markers
+# initialize a dictionary to store top markers
 top_genes_per_cluster = {}
 
-# Get list of clusters
+# gett list of clusters
 clusters = adata_transposed.uns['rank_genes_groups']['names'].dtype.names
 
-# Iterate over each cluster to get top markers
+# iterate over each cluster to get top markers
 for cluster in clusters:
-    # Get top 3 genes for the current cluster
     top_genes = top_markers_df[top_markers_df['group'] == cluster].head(3)
     top_genes_per_cluster[cluster] = top_genes
 
-# Convert dictionary to DataFrame for easy viewing
+# convert dictionary to DF for easy viewing
 top_genes_summary = pd.concat(top_genes_per_cluster.values(), keys=top_genes_per_cluster.keys())
 print(top_genes_summary)
-
 ```
 Which produces the following output:
 
@@ -234,9 +236,10 @@ Which produces the following output:
 
 The image above depicts the top three marker genes expressed in each of our cluster. Now, we'll take the top marker gene for each cluster and then visualize it's expression across all clusters to observe it's distribution:
 ```
+# initialize list of top marker gene for each clsuter
 marker_genes = ['APOD', 'RGS5', 'AQP1', 'FABP4', 'FABP5', 'TAGLN', 'DARC', 'APOC1', 'NKG7', 'MFAP5', 'TYROBP', 'CD52']
 
-# Plot UMAP for each marker gene
+# plot UMAP for each marker gene
 fig, axes = plt.subplots(nrows=3, ncols=4, figsize=(20, 15))
 axes = axes.flatten()
 
